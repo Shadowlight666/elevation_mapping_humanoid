@@ -41,6 +41,14 @@ install(PROGRAMS scripts/tf_to_pose_publisher.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
+install(PROGRAMS scripts/pc_filter.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+install(PROGRAMS scripts/publish_map_frame.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
 ##############
 ##   Test   ##
 ##############

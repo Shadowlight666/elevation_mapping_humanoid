@@ -87,6 +87,7 @@ void ElevationMapping::setupServices() {
       &fusionServiceQueue_);
   fusionTriggerService_ = nodeHandle_.advertiseService(advertiseServiceOptionsForTriggerFusion);
 
+//msh 获取高程图的某个子地图（submap）
   ros::AdvertiseServiceOptions advertiseServiceOptionsForGetFusedSubmap = ros::AdvertiseServiceOptions::create<grid_map_msgs::GetGridMap>(
       "get_submap", [&](auto& req, auto& res) { return getFusedSubmapServiceCallback(req, res); }, ros::VoidConstPtr(),
       &fusionServiceQueue_);
@@ -217,7 +218,7 @@ bool ElevationMapping::readParameters(bool reload) {
   grid_map::Length length;
   grid_map::Position position;
   double resolution{0.01};
-  nodeHandle_.param("length_in_x", length(0), 1.5);
+  nodeHandle_.param("length_in_x", length(0), 1.5);  //子地图的大小
   nodeHandle_.param("length_in_y", length(1), 1.5);
   nodeHandle_.param("position_x", position.x(), 0.0);
   nodeHandle_.param("position_y", position.y(), 0.0);

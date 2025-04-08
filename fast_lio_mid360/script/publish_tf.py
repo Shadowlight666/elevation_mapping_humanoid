@@ -12,26 +12,48 @@ class StaticTransformPublisher:
         self.broadcaster = tf2_ros.StaticTransformBroadcaster()
 
         # Define your static transformations here with RPY
+        # self.transforms = [
+        #     {
+        #         'parent_frame': 'torso_link',
+        #         'child_frame': 'camera_link',
+        #         'translation': (0.11133, 0, 0.68784),
+        #         'rpy': (3.1416, 0.6833, 0.0)  # Roll, Pitch, Yaw
+        #     },
+        #     {
+        #         'parent_frame': 'torso_link',
+        #         'child_frame': 'lidar_link',
+        #         'translation': (0.0002835 , 0.00003 , 0.41618),
+        #         # 'rpy': (0, 0.243124, -3.1416)  # Roll, Pitch, Yaw
+        #         'rpy': (3.1416, 0.243124, 0)
+        #     },
+        #     {
+        #         'parent_frame': 'odom',
+        #         'child_frame': 'odom_torso',
+        #         'translation': (0.0, 0.0, 0.0),
+        #         # 'rpy': (0, 0.243124, -3.1416)  # Roll, Pitch, Yaw
+        #         'rpy': (-3.1416, 0.243124, 0)
+        #     }
+        # ]
         self.transforms = [
             {
                 'parent_frame': 'torso_link',
                 'child_frame': 'camera_link',
-                'translation': (0.11133, 0, 0.68784),
-                'rpy': (3.1416, 0.6833, 0.0)  # Roll, Pitch, Yaw
+                'translation': (0.11133, 180, 0.68784),
+                'rpy': (0, 0.6833, 0.0)  # Roll, Pitch, Yaw
             },
             {
                 'parent_frame': 'torso_link',
                 'child_frame': 'lidar_link',
-                'translation': (0.0473, 0, 0.6749),
+                'translation': (0.0002835 , 0.00003 , 0.41618),
                 # 'rpy': (0, 0.243124, -3.1416)  # Roll, Pitch, Yaw
-                'rpy': (3.1416, 0.243124, 0)
+                'rpy': (3.1416, 0.0, 0)
             },
             {
                 'parent_frame': 'odom',
                 'child_frame': 'odom_torso',
                 'translation': (0.0, 0.0, 0.0),
                 # 'rpy': (0, 0.243124, -3.1416)  # Roll, Pitch, Yaw
-                'rpy': (-3.1416, 0.243124, 0)
+                'rpy': (-3.1416+0.03, 0.07, 0.)
             }
         ]
 

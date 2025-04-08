@@ -86,7 +86,7 @@ bool ElevationMap::add(const PointCloudType::Ptr pointCloud, Eigen::VectorXf& po
   const float scanTimeSinceInitialization = (timestamp - initialTime_).toSec();
 
   // Store references for efficient interation.
-  auto& elevationLayer = rawMap_["elevation"];
+  auto& elevationLayer = rawMap_["elevation"]; //msh 原始的高程数据
   auto& varianceLayer = rawMap_["variance"];
   auto& horizontalVarianceXLayer = rawMap_["horizontal_variance_x"];
   auto& horizontalVarianceYLayer = rawMap_["horizontal_variance_y"];
@@ -130,7 +130,7 @@ bool ElevationMap::add(const PointCloudType::Ptr pointCloud, Eigen::VectorXf& po
                                [&](Eigen::Ref<const grid_map::Matrix> layer) { return std::isfinite(layer(index(0), index(1))); });
     if (!isValid) {
       // No prior information in elevation map, use measurement.
-      elevation = point.z;  // NOLINT(cppcoreguidelines-pro-type-union-access)
+      elevation = point.z;  // NOLINT(cppcoreguidelines-pro-type-union-access)  msh 高程信息
       variance = pointVariance;
       horizontalVarianceX = parameters.minHorizontalVariance_;
       horizontalVarianceY = parameters.minHorizontalVariance_;
@@ -528,7 +528,7 @@ void ElevationMap::move(const Eigen::Vector2d& position) {
   boost::recursive_mutex::scoped_lock scopedLockForRawData(rawMapMutex_);
   std::vector<grid_map::BufferRegion> newRegions;
 
-  if (rawMap_.move(position, newRegions)) {
+  if (rawMap_.move(position, newRegions)) { //msh 该函数会将 rawMap_ 移动到新的位置。rawMap_ 中的所有数据（如高程、方差等）会随着地图的位置变化而变化。
     ROS_DEBUG("Elevation map has been moved to position (%f, %f).", rawMap_.getPosition().x(), rawMap_.getPosition().y());
 
     // The "dynamic_time" layer is meant to be interpreted as integer values, therefore nan:s need to be zeroed.
@@ -561,7 +561,7 @@ bool ElevationMap::publishFusedElevationMap() {
   fusedMapCopy.add("uncertainty_range", fusedMapCopy.get("upper_bound") - fusedMapCopy.get("lower_bound"));
   grid_map_msgs::GridMap message;
   grid_map::GridMapRosConverter::toMessage(fusedMapCopy, message);
-  elevationMapFusedPublisher_.publish(message);
+  elevationMapFusedPublisher_.publish(message);   //msh 发布了/elevation_mapping/elevation_map 消息
   ROS_DEBUG("Elevation map (fused) has been published.");
   return true;
 }

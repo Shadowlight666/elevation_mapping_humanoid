@@ -13,7 +13,7 @@ class PointCloudFilter:
     def __init__(self):
         rospy.init_node('pointcloud_filter')
 
-        self.distance_threshold = rospy.get_param('~distance_threshold', -0.5)  # Distance threshold parameter
+        self.distance_threshold = rospy.get_param('~distance_threshold', -0.15)  # Distance threshold parameter
 
         self.subscriber = rospy.Subscriber('/cloud_registered', PointCloud2, self.pointcloud_callback)
         self.publisher = rospy.Publisher('/cloud_registered/filtered', PointCloud2, queue_size=10)
