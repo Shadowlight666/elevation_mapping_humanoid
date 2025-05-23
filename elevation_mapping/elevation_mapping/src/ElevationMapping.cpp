@@ -65,7 +65,7 @@ void ElevationMapping::setupSubscribers() {  // Handle deprecated point_cloud_to
   if (!configuredInputSources && hasDeprecatedPointcloudTopic) {
     pointCloudSubscriber_ = nodeHandle_.subscribe<sensor_msgs::PointCloud2>(
         parameters.pointCloudTopic_, 1, [&](const auto& msg) { pointCloudCallback(msg, true, sensorProcessor_); });
-  }
+  } ///cloud_registered/filtered
   if (configuredInputSources) {
     inputSources_.registerCallbacks(*this, make_pair("pointcloud", &ElevationMapping::pointCloudCallback));
   }
@@ -417,7 +417,7 @@ void ElevationMapping::pointCloudCallback(const sensor_msgs::PointCloud2ConstPtr
   }
 
   if (publishPointCloud) {
-    // Publish elevation map.
+    // Publish elevation map.发布地图
     map_.postprocessAndPublishRawElevationMap();
     if (isFusingEnabled()) {
       map_.fuseAll();

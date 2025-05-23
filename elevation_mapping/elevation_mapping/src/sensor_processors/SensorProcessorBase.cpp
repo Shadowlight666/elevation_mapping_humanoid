@@ -55,6 +55,7 @@ bool SensorProcessorBase::readParameters() {
   return true;
 }
 
+//TODOmsh
 bool SensorProcessorBase::process(const PointCloudType::ConstPtr pointCloudInput, const Eigen::Matrix<double, 6, 6>& robotPoseCovariance,
                                   const PointCloudType::Ptr pointCloudMapFrame, Eigen::VectorXf& variances, std::string sensorFrame) {
   const Parameters parameters{parameters_.getData()};

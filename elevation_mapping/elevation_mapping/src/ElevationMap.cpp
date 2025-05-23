@@ -33,23 +33,52 @@ float intAsFloat(const uint32_t input) {
 
 namespace elevation_mapping {
 
+// ElevationMap::ElevationMap(ros::NodeHandle nodeHandle)
+//     : nodeHandle_(nodeHandle),
+//       rawMap_({"elevation", "variance", "horizontal_variance_x", "horizontal_variance_y", "horizontal_variance_xy", "color", "time",
+//                "dynamic_time", "lowest_scan_point", "sensor_x_at_lowest_scan", "sensor_y_at_lowest_scan", "sensor_z_at_lowest_scan"}),
+//       fusedMap_({"elevation", "upper_bound", "lower_bound", "color"}),
+//       postprocessorPool_(nodeHandle.param("postprocessor_num_threads", 1), nodeHandle_),
+//       hasUnderlyingMap_(false) {
+//   rawMap_.setBasicLayers({"elevation", "variance"});
+//   fusedMap_.setBasicLayers({"elevation", "upper_bound", "lower_bound"});
+//   clear();
+//   const Parameters parameters{parameters_.getData()};
+
+//   elevationMapFusedPublisher_ = nodeHandle_.advertise<grid_map_msgs::GridMap>("elevation_map", 1);
+//   if (!parameters.underlyingMapTopic_.empty()) {
+//     underlyingMapSubscriber_ = nodeHandle_.subscribe(parameters.underlyingMapTopic_, 1, &ElevationMap::underlyingMapCallback, this);
+//   }
+//   // TODO(max): if (enableVisibilityCleanup_) when parameter cleanup is ready.
+//   visibilityCleanupMapPublisher_ = nodeHandle_.advertise<grid_map_msgs::GridMap>("visibility_cleanup_map", 1);
+
+//   initialTime_ = ros::Time::now();
+// }
+
 ElevationMap::ElevationMap(ros::NodeHandle nodeHandle)
     : nodeHandle_(nodeHandle),
-      rawMap_({"elevation", "variance", "horizontal_variance_x", "horizontal_variance_y", "horizontal_variance_xy", "color", "time",
-               "dynamic_time", "lowest_scan_point", "sensor_x_at_lowest_scan", "sensor_y_at_lowest_scan", "sensor_z_at_lowest_scan"}),
+      rawMap_({"elevation", "variance", "horizontal_variance_x", "horizontal_variance_y", 
+               "horizontal_variance_xy", "color", "time", "dynamic_time", 
+               "lowest_scan_point", "sensor_x_at_lowest_scan", 
+               "sensor_y_at_lowest_scan", "sensor_z_at_lowest_scan",
+               "point_count", "last_seen"}),  // 新增两个图层
       fusedMap_({"elevation", "upper_bound", "lower_bound", "color"}),
       postprocessorPool_(nodeHandle.param("postprocessor_num_threads", 1), nodeHandle_),
       hasUnderlyingMap_(false) {
   rawMap_.setBasicLayers({"elevation", "variance"});
   fusedMap_.setBasicLayers({"elevation", "upper_bound", "lower_bound"});
   clear();
+  
+  // 初始化新图层
+  rawMap_["point_count"].setConstant(0.0);
+  rawMap_["last_seen"].setConstant(0.0);
+  
   const Parameters parameters{parameters_.getData()};
 
   elevationMapFusedPublisher_ = nodeHandle_.advertise<grid_map_msgs::GridMap>("elevation_map", 1);
   if (!parameters.underlyingMapTopic_.empty()) {
     underlyingMapSubscriber_ = nodeHandle_.subscribe(parameters.underlyingMapTopic_, 1, &ElevationMap::underlyingMapCallback, this);
   }
-  // TODO(max): if (enableVisibilityCleanup_) when parameter cleanup is ready.
   visibilityCleanupMapPublisher_ = nodeHandle_.advertise<grid_map_msgs::GridMap>("visibility_cleanup_map", 1);
 
   initialTime_ = ros::Time::now();
@@ -66,6 +95,10 @@ void ElevationMap::setGeometry(const grid_map::Length& length, const double& res
 }
 bool ElevationMap::add(const PointCloudType::Ptr pointCloud, Eigen::VectorXf& pointCloudVariances, const ros::Time& timestamp,
                        const Eigen::Affine3d& transformationSensorToMap) {
+  
+  float minPointCountThreshold_ = 5;  // 最小点出现次数阈值
+  float pointCountResetTime_ = 1.0;     // 重置点计数的时间间隔(秒)
+
   const Parameters parameters{parameters_.getData()};
   if (static_cast<unsigned int>(pointCloud->size()) != static_cast<unsigned int>(pointCloudVariances.size())) {
     ROS_ERROR("ElevationMap::add: Size of point cloud (%i) and variances (%i) do not agree.", (int)pointCloud->size(),
@@ -85,8 +118,8 @@ bool ElevationMap::add(const PointCloudType::Ptr pointCloud, Eigen::VectorXf& po
   }
   const float scanTimeSinceInitialization = (timestamp - initialTime_).toSec();
 
-  // Store references for efficient interation.
-  auto& elevationLayer = rawMap_["elevation"]; //msh 原始的高程数据
+  // Store references for efficient iteration.
+  auto& elevationLayer = rawMap_["elevation"];
   auto& varianceLayer = rawMap_["variance"];
   auto& horizontalVarianceXLayer = rawMap_["horizontal_variance_x"];
   auto& horizontalVarianceYLayer = rawMap_["horizontal_variance_y"];
@@ -98,18 +131,47 @@ bool ElevationMap::add(const PointCloudType::Ptr pointCloud, Eigen::VectorXf& po
   auto& sensorXatLowestScanLayer = rawMap_["sensor_x_at_lowest_scan"];
   auto& sensorYatLowestScanLayer = rawMap_["sensor_y_at_lowest_scan"];
   auto& sensorZatLowestScanLayer = rawMap_["sensor_z_at_lowest_scan"];
+  
+  // Add new layers for point count and last seen time
+  auto& pointCountLayer = rawMap_["point_count"]; // 记录点出现次数
+  auto& lastSeenLayer = rawMap_["last_seen"];     // 记录最后一次出现时间
 
   std::vector<Eigen::Ref<const grid_map::Matrix>> basicLayers_;
   for (const std::string& layer : rawMap_.getBasicLayers()) {
     basicLayers_.emplace_back(rawMap_.get(layer));
   }
 
+  // First pass: update point count for all points in current scan
   for (unsigned int i = 0; i < pointCloud->size(); ++i) {
     auto& point = pointCloud->points[i];
     grid_map::Index index;
-    grid_map::Position position(point.x, point.y);  // NOLINT(cppcoreguidelines-pro-type-union-access)
+    grid_map::Position position(point.x, point.y);
     if (!rawMap_.getIndex(position, index)) {
-      continue;  // Skip this point if it does not lie within the elevation map.
+      continue;
+    }
+        
+    auto& pointCount = pointCountLayer(index(0), index(1));
+    auto& lastSeen = lastSeenLayer(index(0), index(1));
+    // std::cout<< pointCount <<std::endl;
+    // Reset count if too much time has passed since last seen
+    if (scanTimeSinceInitialization - lastSeen > pointCountResetTime_ || std::isnan(pointCount)) {
+      // std::cout<< scanTimeSinceInitialization - lastSeen <<std::endl;
+      pointCount = 0;
+    }
+    
+    // Increment point count
+    pointCount += 1;
+
+    lastSeen = scanTimeSinceInitialization;
+  }
+
+  // Second pass: only update elevation for points with sufficient count
+  for (unsigned int i = 0; i < pointCloud->size(); ++i) {
+    auto& point = pointCloud->points[i];
+    grid_map::Index index;
+    grid_map::Position position(point.x, point.y);
+    if (!rawMap_.getIndex(position, index)) {
+      continue;
     }
 
     auto& elevation = elevationLayer(index(0), index(1));
@@ -124,13 +186,22 @@ bool ElevationMap::add(const PointCloudType::Ptr pointCloud, Eigen::VectorXf& po
     auto& sensorXatLowestScan = sensorXatLowestScanLayer(index(0), index(1));
     auto& sensorYatLowestScan = sensorYatLowestScanLayer(index(0), index(1));
     auto& sensorZatLowestScan = sensorZatLowestScanLayer(index(0), index(1));
+    auto& pointCount = pointCountLayer(index(0), index(1));
 
     const float& pointVariance = pointCloudVariances(i);
     bool isValid = std::all_of(basicLayers_.begin(), basicLayers_.end(),
                                [&](Eigen::Ref<const grid_map::Matrix> layer) { return std::isfinite(layer(index(0), index(1))); });
+    
+    // Skip if point count is below threshold
+    // std::cout<< (pointCount < minPointCountThreshold_ ||  std::isnan(pointCount))<<" " << pointCount <<std::endl;
+    if (pointCount < minPointCountThreshold_ ||  std::isnan(pointCount)) {
+
+      continue;
+    }
+
     if (!isValid) {
       // No prior information in elevation map, use measurement.
-      elevation = point.z;  // NOLINT(cppcoreguidelines-pro-type-union-access)  msh 高程信息
+      elevation = point.z;
       variance = pointVariance;
       horizontalVarianceX = parameters.minHorizontalVariance_;
       horizontalVarianceY = parameters.minHorizontalVariance_;
@@ -139,17 +210,17 @@ bool ElevationMap::add(const PointCloudType::Ptr pointCloud, Eigen::VectorXf& po
       continue;
     }
 
-    // Deal with multiple heights in one cell.
-    const double mahalanobisDistance = fabs(point.z - elevation) / sqrt(variance);  // NOLINT(cppcoreguidelines-pro-type-union-access)
+    // Rest of the original logic...
+    const double mahalanobisDistance = fabs(point.z - elevation) / sqrt(variance);
     if (mahalanobisDistance > parameters.mahalanobisDistanceThreshold_) {
       if (scanTimeSinceInitialization - time <= parameters.scanningDuration_ &&
-          elevation > point.z) {  // NOLINT(cppcoreguidelines-pro-type-union-access)
+          elevation > point.z) {
         // Ignore point if measurement is from the same point cloud (time comparison) and
         // if measurement is lower then the elevation in the map.
       } else if (scanTimeSinceInitialization - time <= parameters.scanningDuration_) {
         // If point is higher.
         elevation = parameters.increaseHeightAlpha_ * elevation +
-                    (1.0 - parameters.increaseHeightAlpha_) * point.z;  // NOLINT(cppcoreguidelines-pro-type-union-access)
+                    (1.0 - parameters.increaseHeightAlpha_) * point.z;
         variance = parameters.increaseHeightAlpha_ * variance + (1.0 - parameters.increaseHeightAlpha_) * pointVariance;
       } else {
         variance += parameters.multiHeightNoise_;
@@ -158,8 +229,7 @@ bool ElevationMap::add(const PointCloudType::Ptr pointCloud, Eigen::VectorXf& po
     }
 
     // Store lowest points from scan for visibility checking.
-    const float pointHeightPlusUncertainty =
-        point.z + 3.0 * sqrt(pointVariance);  // 3 sigma. // NOLINT(cppcoreguidelines-pro-type-union-access)
+    const float pointHeightPlusUncertainty = point.z + 3.0 * sqrt(pointVariance);
     if (std::isnan(lowestScanPoint) || pointHeightPlusUncertainty < lowestScanPoint) {
       lowestScanPoint = pointHeightPlusUncertainty;
       const grid_map::Position3 sensorTranslation(transformationSensorToMap.translation());
@@ -169,10 +239,8 @@ bool ElevationMap::add(const PointCloudType::Ptr pointCloud, Eigen::VectorXf& po
     }
 
     // Fuse measurement with elevation map data.
-    elevation =
-        (variance * point.z + pointVariance * elevation) / (variance + pointVariance);  // NOLINT(cppcoreguidelines-pro-type-union-access)
+    elevation = (variance * point.z + pointVariance * elevation) / (variance + pointVariance);
     variance = (pointVariance * variance) / (pointVariance + variance);
-    // TODO(max): Add color fusion.
     grid_map::colorVectorToValue(point.getRGBVector3i(), color);
     time = scanTimeSinceInitialization;
     dynamicTime = currentTimeSecondsPattern;
@@ -184,7 +252,7 @@ bool ElevationMap::add(const PointCloudType::Ptr pointCloud, Eigen::VectorXf& po
   }
 
   clean();
-  rawMap_.setTimestamp(timestamp.toNSec());  // Point cloud stores time in microseconds.
+  rawMap_.setTimestamp(timestamp.toNSec());
 
   const ros::WallDuration duration = ros::WallTime::now() - methodStartTime;
   ROS_DEBUG("Raw map has been updated with a new point cloud in %f s.", duration.toSec());
@@ -541,6 +609,7 @@ void ElevationMap::move(const Eigen::Vector2d& position) {
   }
 }
 
+//负责发布 原始高程图数据（/elevation_mapping/elevation_map_raw）
 bool ElevationMap::postprocessAndPublishRawElevationMap() {
   if (!hasRawMapSubscribers()) {
     return false;
@@ -551,6 +620,7 @@ bool ElevationMap::postprocessAndPublishRawElevationMap() {
   return postprocessorPool_.runTask(rawMapCopy);
 }
 
+//发布 融合后的高程图数据（/elevation_mapping/elevation_map）
 bool ElevationMap::publishFusedElevationMap() {
   if (!hasFusedMapSubscribers()) {
     return false;
